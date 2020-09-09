@@ -1,13 +1,13 @@
 #include <Arduino.h>
 #include "Wire.h"
 #include "I2CKeyPad.h"
+#include <LiquidCrystal_I2C.h>
 
 
-
-
-
+int i=0;
 const uint8_t KEYPAD_ADDRESS = 0x27;
 I2CKeyPad keyPad;
+LiquidCrystal_I2C lcd(0x27, 20, 4);
 
 /***************************************************************************
 ****************************************************************************
@@ -29,6 +29,8 @@ void setup()
 
   Wire.begin();
   Wire.setClock(100000);
+  lcd.init();
+  lcd.backlight();
   if (keyPad.begin(KEYPAD_ADDRESS) == false)
   {
     Serial.println("\nERROR: cannot communicate to keypad.\nPlease reboot.\n");
@@ -42,7 +44,9 @@ void setup()
 
 void loop()
 {
-  delay(100);
+  lcd.setCursor(9,2);
+  lcd.print(i++);
+  delay(500);
 }
 
 /***************************************************************************
