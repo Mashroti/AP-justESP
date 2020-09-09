@@ -1,13 +1,17 @@
 #include <Arduino.h>
+#include <Servo.h>
 #include "Wire.h"
 #include "I2CKeyPad.h"
 #include <LiquidCrystal_I2C.h>
 
+#define BrushlessMotorPin 15      //D8 is GPIO15
 
-int i=0;
-const uint8_t KEYPAD_ADDRESS = 0x27;
-I2CKeyPad keyPad;
-LiquidCrystal_I2C lcd(0x27, 20, 4);
+
+const uint8_t KEYPAD_ADDRESS  = 0x23;
+const uint8_t LCD_ADDRESS     = 0x27;
+I2CKeyPad         keyPad;
+LiquidCrystal_I2C lcd(LCD_ADDRESS, 20, 4);
+Servo myservo;  // create servo object to control a servo
 
 /***************************************************************************
 ****************************************************************************
@@ -27,8 +31,12 @@ void setup()
   Serial.begin(115200);
   Serial.println(__FILE__);
 
+  myservo.attach(BrushlessMotorPin); // attaches the servo on GPIO8 to the servo object
+  myservo.write(0);   // tell servo to go to position (0 - 180)
+
   Wire.begin();
   Wire.setClock(100000);
+
   lcd.init();
   lcd.backlight();
   if (keyPad.begin(KEYPAD_ADDRESS) == false)
@@ -44,8 +52,7 @@ void setup()
 
 void loop()
 {
-  lcd.setCursor(9,2);
-  lcd.print(i++);
+
   delay(500);
 }
 
