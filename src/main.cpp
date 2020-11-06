@@ -26,13 +26,12 @@
 //#define BrushlessMotorPin 15      //D8 is GPIO15
 #define BrushlessMotorPin D0
 //**********************Encoder Variable*****************************
-#define Encoder_DT    14
-#define Encoder_CLK   12
+#define Encoder_DT    D5
+#define Encoder_CLK   D6
 int16_t  Encoder_quad = 0;
 int16_t Encoder_previous_data;
 void ICACHE_RAM_ATTR Encoder_read();
 /********************************************************************/
-
 const uint8_t KEYPAD_ADDRESS  = 0x26;
 const uint8_t LCD_ADDRESS     = 0x27;
 I2CKeyPad         keyPad;
@@ -40,7 +39,6 @@ LiquidCrystal_I2C lcd(LCD_ADDRESS, 20, 4);
 Servo esc;  // create servo object to control a servo
 
 /********************************************************************/
-
 const char info[] ={"\r\n***************************************\r\n"
                         "************* AeroPendulum ************\r\n"
                         "******* Seyyed Amir Ali Masoumi *******\r\n"
@@ -62,6 +60,13 @@ struct Status
 	uint8_t exe		  : 1;
 }Status;
 
+struct PID{
+	int8_t SetPoint;
+	uint8_t time;
+	double Kp;
+	double Ki;
+	double Kd;
+}PID={25,0,20,0,0};
 /***************************************************************************
 ****************************************************************************
 ****************************************************************************
@@ -69,16 +74,15 @@ struct Status
 char GET_KEY  (void);
 void MATLAB   (void);
 void startup (void);
-void Process_UART_Data(char* Data);
-char GET_KEY(void);
-void KeyPad(void);
+void key_analyze(void);
+/*void KeyPad(void);
 void Volume(void);
 void Verify_Unique(void);
 void PID_setting(void);
 void Get_Number (char *NUMBER);
-void key_analyze(void);
+void Process_UART_Data(char* Data);
 void Online(void);
-void WiFi_Setting(void);
+void WiFi_Setting(void);*/
 
 
 /***************************************************************************
@@ -119,7 +123,7 @@ void setup()
   //Serial.println("\r\nlcd init");
   //***************************** Speed Controller *********************************
   esc.attach(BrushlessMotorPin); // attaches the servo on GPIO15(D8) to the servo object
-  esc.write(Min_Throttle);   // tell servo to go to position (0 - 180)
+  esc.write(0);   // tell servo to go to position (0 - 180)
   
   startup();
 }
@@ -138,10 +142,10 @@ void loop()
     {
       lcd.clear();
            if(Num == 2)	MATLAB();
-      else if(Num == 3)	KeyPad();
-      else if(Num == 4)	Volume();
-      else if(Num == 5)	WiFi_Setting();
-      else if(Num == 1) KeyPad();
+      //else if(Num == 3)	KeyPad();
+      //else if(Num == 4)	Volume();
+      //else if(Num == 5)	WiFi_Setting();
+      //else if(Num == 1) KeyPad();
       
 
       lcd.clear();
@@ -151,6 +155,7 @@ void loop()
       lcd_puts_XY(0,3,"4> Win App");
     }
     Num = GET_KEY();
+    delay(1);
   }
 }
 /***************************************************************************
@@ -175,7 +180,7 @@ void startup(void)
 	  lcd_puts_XY(2,0,"AeroPendulum");
 	  lcd_puts_XY(3,1,"Motor Init");
 	  lcd_puts_XY(2,2,"Please Wait");
-	  for(uint8_t i=0 ;i<19 ;i++)
+	  for(uint8_t i=0 ;i<15 ;i++)
 	  {
 		  lcd_puts_XY(i,3,"\xff>");
 		  delay(300);
@@ -207,24 +212,22 @@ void MATLAB   (void)
   while (Status.whiles)
   {
     key_analyze();
-    while (!data) 
+    
+    if(Serial.available())
     {
-      if(Serial.available())
+      char c = Serial.read();  //gets one byte from serial buffer
+      buffer[count++] = c; //makes the string readString
+      buffer[count] = 0;
+
+      if(c == '\n')
       {
-        char c = Serial.read();  //gets one byte from serial buffer
-        buffer[count++] = c; //makes the string readString
-        buffer[count] = 0;
-
-        if(c == '\n')
-        {
-          data = true;
-          count = 0;
-        }
-
-        delay(2);  //slow looping to allow buffer to fill with next character
+        data = true;
+        count = 0;
       }
-      delay(1);
+
+      //delay(1);  //slow looping to allow buffer to fill with next character
     }
+    delay(1);
     if(data)
     {
       if (buffer[0]==50 && buffer[1]==52)
@@ -313,5 +316,55 @@ void ICACHE_RAM_ATTR Encoder_read()
   else
     Encoder_quad += 1;
   Encoder_previous_data = current_data; 
+}
+
+/***************************************************************************
+****************************************************************************
+****************************************************************************
+***************************************************************************/
+void PID_Controll(void)
+{
+	double Error=0, Previous_error=0;
+	double p_term=0, d_term=0, i_term=0, dt=0;
+  float Angle = 0;
+	int16_t Value=0, PWM=0;
+	uint32_t timePrev, TickStart = millis();
+	uint8_t throttle =  Max_Throttle - Min_Throttle;
+
+	while(Status.whiles)
+	{
+    key_analyze();
+
+	  Angle = Encoder_quad/4;
+
+		if(Status.motor)
+		{
+		  timePrev	=	TickStart;
+		  TickStart	=	millis();
+		  dt			= 	((float)(TickStart - timePrev) / 1000.00);
+
+			Error		=	PID.SetPoint - Angle;
+
+			p_term = PID.Kp * Error;
+
+			i_term		=	(PID.Ki * (Error + Previous_error) * dt / 2) + i_term ;
+			if(i_term > throttle) i_term = throttle;
+			if(i_term <-throttle) i_term = -throttle;
+
+			d_term = (Error - Previous_error) / dt * PID.Kd;
+            if(d_term > throttle)	d_term = throttle;
+            if(d_term <-throttle)	d_term = -throttle;
+
+			PWM			=	(int16_t)(p_term + i_term + d_term);
+
+			if (PWM > throttle)	PWM = throttle;
+			if (PWM < 0)		PWM = 0;
+
+			Value = PWM + Min_Throttle;
+      esc.write(Value);
+
+			Previous_error = Error;
+		}
+	}
 }
 
