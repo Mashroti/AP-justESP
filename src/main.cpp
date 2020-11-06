@@ -193,8 +193,9 @@ void MATLAB   (void)
   char buffer[15];
   bool data = false;
   uint8_t pwm, count=0;
-
-	union u_type
+  int time = millis();   //for turn off the motor after two seconds
+	
+  union u_type
   {
 		double pid_exit;
 		uint8_t u[8];
@@ -246,9 +247,14 @@ void MATLAB   (void)
         if (pwm < Min_Throttle) pwm = Min_Throttle;
         if (pwm > Max_Throttle) pwm = Max_Throttle;
         esc.write(pwm);
+        time = millis();
       }      
       data = false;
     }
+
+    //for turn off the motor after two seconds
+    if(millis() - time > 2000)  esc.write(Min_Throttle);
+
   }
   lcd.backlight();
 }
