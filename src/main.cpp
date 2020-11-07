@@ -77,15 +77,16 @@ char GET_KEY  (void);
 void MATLAB   (void);
 void startup (void);
 void key_analyze(void);
+void Online(void);
 void Offline(void);
 void show_param(void);
 void PID_Controll(void);
-/*void Volume(void);
-void Verify_Unique(void);
 void PID_setting(void);
 void Get_Number (char *NUMBER);
+/*void Volume(void);
+void Verify_Unique(void);
 void Process_UART_Data(char* Data);
-void Online(void);
+
 void WiFi_Setting(void);*/
 
 
@@ -285,6 +286,14 @@ void MATLAB   (void)
 ****************************************************************************
 ****************************************************************************
 ***************************************************************************/
+void Online(void)
+{
+
+}
+/***************************************************************************
+****************************************************************************
+****************************************************************************
+***************************************************************************/
 void Offline(void)
 {
   String buffer;
@@ -335,7 +344,7 @@ void key_analyze(void)
         if(Status.motor && Status.Offline) PID_Controll();
         break;   
       case ok:
-        //PID_setting();
+        if(!Status.motor && Status.Offline) PID_setting();
         break; 
       default:
         break;
@@ -437,4 +446,185 @@ void PID_Controll(void)
   esc.write(0);
   if(Status.Offline) show_param();
 }
+/***************************************************************************
+****************************************************************************
+****************************************************************************
+***************************************************************************/
+void PID_setting(void)
+{
+  uint8_t Prev_Num=ok,Num;
+	char Buffer[20];
+	char NUMBER[9];
+	int8_t i=0;
+	double x;
 
+	lcd.clear();
+
+	do
+	{
+		lcd_puts_XY(4,0,"SetPoint");
+		lcd_puts_XY(7,1,"KP");
+		lcd_puts_XY(7,2,"KI");
+		lcd_puts_XY(7,3,"KD");
+
+		Status.whiles=1; Status.PID_whil=0;
+		while(Status.whiles)
+		{
+			Num = GET_KEY();
+
+			if(Num != Prev_Num)
+			{
+				lcd_puts_XY(2,i," ");
+				lcd_puts_XY(13,i," ");
+
+				if(Num==up)i--;
+				if(Num==down)i++;
+				if(i<0)i=3;
+				if(i>3)i=0;
+
+				lcd_puts_XY(2,i,">");
+				lcd_puts_XY(13,i,"<");
+				Prev_Num = Num;
+
+				if(Num == ok){Status.whiles=0;Status.PID_whil=1;}
+				if(Num == exit)Status.whiles=0;
+			}
+      delay(1);
+		}
+		if(Status.PID_whil)
+		{
+			lcd.clear();
+
+			if(i==0)
+			{
+				lcd_puts_XY(0,0,"---->SET SP<----");
+				sprintf(Buffer,"Last SP= %02d ",PID.SetPoint);
+				lcd_puts_XY(0,2,Buffer);
+				lcd_puts_XY(1,3,"NEW SP= ");
+			}
+			if(i==1)
+			{
+				lcd_puts_XY(0,0,"---->SET KP<----");
+				sprintf(Buffer,"Last KP= %07.4f  ",PID.Kp);
+				lcd_puts_XY(0,2,Buffer);
+				lcd_puts_XY(1,3,"NEW KP= ");
+			}
+			if(i==2)
+			{
+				lcd_puts_XY(0,0,"---->SET KI<----");
+				sprintf(Buffer,"Last KI= %07.4f  ",PID.Ki);
+				lcd_puts_XY(0,2,Buffer);
+				lcd_puts_XY(1,3,"NEW KI= ");
+			}
+			if(i==3)
+			{
+				lcd_puts_XY(0,0,"---->SET KD<----");
+				sprintf(Buffer,"Last KD= %07.4f  ",PID.Kd);
+				lcd_puts_XY(0,2,Buffer);
+				lcd_puts_XY(1,3,"NEW KD= ");
+			}
+
+			Get_Number(NUMBER);
+			if(Status.PID_OK)
+			{
+				Prev_Num = ok;
+				x = atof(NUMBER);
+				if(x > 999) x = 999;
+				switch(i)
+				{
+					case 0:
+						if(x > 140) x = 140;
+						if(x < 0) x = 0;
+						PID.SetPoint = x;
+					break;
+					case 1:
+						PID.Kp = x;
+					break;
+					case 2:
+						PID.Ki = x;
+					break;
+					case 3:
+						PID.Kd = x;
+					break;
+				}
+			}else Prev_Num = exit;
+
+		}
+	}while(Status.whiles);
+
+	Status.whiles=1;
+	lcd.clear();
+  prev_key = exit;
+  show_param();
+}
+/***************************************************************************
+****************************************************************************
+****************************************************************************
+***************************************************************************/
+void Get_Number (char *NUMBER)
+{
+  char Prev_Num=ok ,Num;
+  uint8_t i;
+
+  for(i=0;i<7;i++)*(NUMBER+i)=' ';
+  i=0;
+
+  Status.Get_Num=1;
+  while(Status.Get_Num)
+  {
+    Num = GET_KEY();
+    if(Prev_Num != Num && Num !='N' && Num !='F')
+    {
+      switch (Num)
+      {
+        case cls:
+            if(i>0)i--;
+            NUMBER[i] = ' ';
+            lcd.setCursor(9+i, 3);
+            lcd.print(' ');
+        break;
+
+        case ok:
+          Status.Get_Num = 0;
+            Status.PID_OK = 1;
+        break;
+
+        case exit:
+          Status.Get_Num = 0;
+            Status.PID_OK = 0;
+        break;
+
+        case up:
+        break;
+
+        case down:
+        break;
+
+        case dot:
+          if(i<6)
+          {
+            NUMBER[i] = '.';
+            lcd.setCursor(9+i, 3);
+            lcd.print(NUMBER[i]);
+            i++;
+          }
+        break;
+
+        default:
+          if(i<7)
+          {
+            NUMBER[i] = Num + '0';
+            lcd.setCursor(9+i, 3);
+            lcd.print(NUMBER[i]);
+            i++;
+          }
+        break;
+      };
+
+    }
+    Prev_Num = Num;
+    delay(1);
+  }
+  Status.whiles=1;
+  lcd.clear();
+}
