@@ -88,12 +88,13 @@ void MATLAB   (void);
 void startup (void);
 void key_analyze(void);
 void Online(void);
+void data_send_online(uint16 *time, int16_t *angle, uint16 i);
 void Offline(void);
 void show_param(void);
 void PID_Controll(void);
 void PID_setting(void);
 void Get_Number (char *NUMBER);
-void data_send_online(uint16 *time, int16_t *angle, uint16 i);
+
 /*void Volume(void);
 void Verify_Unique(void);
 void Process_UART_Data(char* Data);
@@ -330,7 +331,6 @@ void Online(void)
   DynamicJsonDocument doc(200);
 
   String payload;
-  boolean chek = 1;
   int httpCode;
 
   while(Status.whiles)
@@ -351,8 +351,7 @@ void Online(void)
       DeserializationError error = deserializeJson(doc, payload);
       if (error) 
       {
-        Serial.print(F("deserializeJson() failed: "));
-        Serial.println(error.f_str());
+        Serial.print(F("deserializeJson failed"));
       }   
       else
       {
@@ -361,12 +360,12 @@ void Online(void)
         PID.Kd = doc["kd"];
         PID.SetPoint = doc["sp"];
         PID.time = doc["time"];
-        char *token_char = doc["token"];
+        const char *token_char = doc["token"];
 
         token = token_char;
         token += '/'; 
 
-        char *code_char = doc["code"]; 
+        const char *code_char = doc["code"]; 
         code = code_char;
 
         angleAdderss = "http://ap.damoon.pro/api/ap/angle/";
