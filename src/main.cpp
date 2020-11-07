@@ -5,6 +5,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <string.h>
 #include <pins_arduino.h>
+#include <ArduinoJson.h>
 
 
 #define cls             10
@@ -14,8 +15,8 @@
 #define ok              14
 #define dot             15
 
-#define Min_Throttle  46
-#define Max_Throttle  156
+#define Min_Throttle  40  //46
+#define Max_Throttle  156  //156
 
 #define lcd_puts_XY(x,y,msg) {\
  lcd.setCursor(x,y);\
@@ -57,7 +58,8 @@ struct Status
 	uint8_t Get_Num	: 1;
 	uint8_t get_data: 1;
 	uint8_t Online	: 1;
-	uint8_t exe		  : 1;
+	uint8_t Offline	: 1;
+  uint8_t exe		  : 1;
 }Status;
 
 struct PID{
@@ -66,7 +68,7 @@ struct PID{
 	double Kp;
 	double Ki;
 	double Kd;
-}PID={25,0,20,0,0};
+}PID={25,0,2,0,0};
 /***************************************************************************
 ****************************************************************************
 ****************************************************************************
@@ -75,8 +77,10 @@ char GET_KEY  (void);
 void MATLAB   (void);
 void startup (void);
 void key_analyze(void);
-/*void KeyPad(void);
-void Volume(void);
+void Offline(void);
+void show_param(void);
+void PID_Controll(void);
+/*void Volume(void);
 void Verify_Unique(void);
 void PID_setting(void);
 void Get_Number (char *NUMBER);
@@ -126,6 +130,11 @@ void setup()
   esc.write(0);   // tell servo to go to position (0 - 180)
   
   startup();
+
+  Status.Online =0;
+  Status.Offline =0;
+  Status.exe =0;
+  Status.motor =0;
 }
 /***************************************************************************
 ****************************************************************************
@@ -142,11 +151,22 @@ void loop()
     {
       lcd.clear();
            if(Num == 2)	MATLAB();
-      //else if(Num == 3)	KeyPad();
-      //else if(Num == 4)	Volume();
-      //else if(Num == 5)	WiFi_Setting();
-      //else if(Num == 1) KeyPad();
-      
+      else if(Num == 3)	
+      {
+        Status.Offline = 1;
+        Offline();
+        Status.Offline = 0;
+      }
+      /*else if(Num == 1) 
+      {
+        Status.Online =1;
+        KeyPad();
+        Status.Online =0;
+      }
+      else if(Num == 4)	Volume();
+      else if(Num == 5)	WiFi_Setting();
+ 
+      */
 
       lcd.clear();
       lcd_puts_XY(0,0,"1> Online");
@@ -198,7 +218,7 @@ void MATLAB   (void)
   char buffer[15];
   bool data = false;
   uint8_t pwm, count=0;
-  int time = millis();   //for turn off the motor after two seconds
+  unsigned long time = millis();   //for turn off the motor after two seconds
 	
   union u_type
   {
@@ -265,26 +285,63 @@ void MATLAB   (void)
 ****************************************************************************
 ****************************************************************************
 ***************************************************************************/
+void Offline(void)
+{
+  String buffer;
+  Status.whiles = 1;
+
+  show_param();
+
+  while (Status.whiles)
+  {
+    key_analyze();
+    delay(1);
+  }
+  
+}
+void show_param(void)
+{
+  lcd.clear();
+  lcd_puts_XY(0,0,"SetPoint=");
+  lcd.print(PID.SetPoint);
+  lcd_puts_XY(0,1,"KP=");
+  lcd.print(PID.Kp);
+  lcd_puts_XY(0,2,"KI=");
+  lcd.print(PID.Ki);
+  lcd_puts_XY(0,3,"KD=");
+  lcd.print(PID.Kd);
+}
+/***************************************************************************
+****************************************************************************
+****************************************************************************
+***************************************************************************/
+char prev_key;
 void key_analyze(void)
 {
   uint8_t key = GET_KEY();
-  switch (key)
+  if(key != prev_key)
   {
-    case exit:
-      Status.whiles = 0;
-      esc.write(Min_Throttle);
-      break;
-    case 0:
-      Encoder_quad = 0;
-      break; 
-    case cls:
-      Status.motor ^= 1;
-      if(Status.motor == 0) esc.write(Min_Throttle);
-      break;   
-
-    default:
-      break;
+    prev_key = key;
+    switch (key)
+    {
+      case exit:
+        Status.whiles = 0;
+        break;
+      case 0:
+        Encoder_quad = 0;
+        break; 
+      case cls:
+        Status.motor ^= 1;
+        if(Status.motor && Status.Offline) PID_Controll();
+        break;   
+      case ok:
+        //PID_setting();
+        break; 
+      default:
+        break;
+    }    
   }
+
 }
 /***************************************************************************
 ****************************************************************************
@@ -331,40 +388,53 @@ void PID_Controll(void)
 	uint32_t timePrev, TickStart = millis();
 	uint8_t throttle =  Max_Throttle - Min_Throttle;
 
-	while(Status.whiles)
+  lcd.clear();
+
+	while(Status.motor & Status.whiles)
 	{
+	  Angle = Encoder_quad/4.0;
+
+    timePrev	=	TickStart;
+    TickStart	=	millis();
+    dt			= 	((float)(TickStart - timePrev) / 1000.00);
+
+    Error		=	PID.SetPoint - Angle;
+
+    p_term = PID.Kp * Error;
+
+    i_term		=	(PID.Ki * (Error + Previous_error) * dt / 2) + i_term ;
+    if(i_term > throttle) i_term = throttle;
+    if(i_term <-throttle) i_term = -throttle;
+
+    d_term = (Error - Previous_error) / dt * PID.Kd;
+    if(d_term > throttle)	d_term = throttle;
+    if(d_term <-throttle)	d_term = -throttle;
+
+    PWM			=	(int16_t)(p_term + i_term + d_term);
+
+    if (PWM > throttle)	PWM = throttle;
+    if (PWM < 0)		PWM = 0;
+
+    Value = PWM + Min_Throttle;
+    esc.write(Value);
+
+    Previous_error = Error;
+    
+    if(Status.Offline)
+    {
+      lcd_puts_XY(0,0,"SP=");
+      lcd.print(PID.SetPoint); 
+      lcd.print("   ");  
+      lcd_puts_XY(0,2,"PV=");
+      lcd.print(Angle,2);
+      lcd.print("   ");
+    }
+    delay(1);
     key_analyze();
-
-	  Angle = Encoder_quad/4;
-
-		if(Status.motor)
-		{
-		  timePrev	=	TickStart;
-		  TickStart	=	millis();
-		  dt			= 	((float)(TickStart - timePrev) / 1000.00);
-
-			Error		=	PID.SetPoint - Angle;
-
-			p_term = PID.Kp * Error;
-
-			i_term		=	(PID.Ki * (Error + Previous_error) * dt / 2) + i_term ;
-			if(i_term > throttle) i_term = throttle;
-			if(i_term <-throttle) i_term = -throttle;
-
-			d_term = (Error - Previous_error) / dt * PID.Kd;
-            if(d_term > throttle)	d_term = throttle;
-            if(d_term <-throttle)	d_term = -throttle;
-
-			PWM			=	(int16_t)(p_term + i_term + d_term);
-
-			if (PWM > throttle)	PWM = throttle;
-			if (PWM < 0)		PWM = 0;
-
-			Value = PWM + Min_Throttle;
-      esc.write(Value);
-
-			Previous_error = Error;
-		}
 	}
+  Status.whiles = 1;
+  Status.motor = 0;
+  esc.write(0);
+  if(Status.Offline) show_param();
 }
 
