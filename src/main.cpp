@@ -325,6 +325,11 @@ void Online(void)
     key_analyze();
   }
   if(!Status.whiles)  return;
+  lcd.clear();
+  lcd_puts_XY(3,1,"Connected!");
+  delay(500);
+  lcd.clear();
+
   Status.whiles = 1;
 
   HTTPClient http;    //Declare object of class HTTPClient
@@ -346,6 +351,9 @@ void Online(void)
     
     http.end();  //Close connection
     
+    lcd_puts_XY(0,0,payload);
+    lcd.print("  ");
+
     if(payload.indexOf("kp") > 0)
     {
       DeserializationError error = deserializeJson(doc, payload);
