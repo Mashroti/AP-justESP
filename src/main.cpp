@@ -5,6 +5,12 @@
 #include <LiquidCrystal_I2C.h>
 #include <string.h>
 #include <pins_arduino.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClient.h> 
+#include <ESP8266WebServer.h>
+#include <ESP8266HTTPClient.h>
+#include <DNSServer.h>
+#include <WiFiManager.h>  
 #include <ArduinoJson.h>
 
 
@@ -69,6 +75,10 @@ struct PID{
 	double Ki;
 	double Kd;
 }PID={25,0,2,0,0};
+
+uint8_t zaman;
+String token,code;
+String angleAdderss;
 /***************************************************************************
 ****************************************************************************
 ****************************************************************************
@@ -83,6 +93,7 @@ void show_param(void);
 void PID_Controll(void);
 void PID_setting(void);
 void Get_Number (char *NUMBER);
+void data_send_online(uint16 *time, int16_t *angle, uint16 i);
 /*void Volume(void);
 void Verify_Unique(void);
 void Process_UART_Data(char* Data);
@@ -151,19 +162,20 @@ void loop()
     if((Num > 0 && Num <=5 ) || Num == 20)
     {
       lcd.clear();
-           if(Num == 2)	MATLAB();
+      if(Num == 1) 
+      {
+        Status.Online =1;
+        Online();
+        Status.Online =0;
+      }
+      else if(Num == 2)	MATLAB();
       else if(Num == 3)	
       {
         Status.Offline = 1;
         Offline();
         Status.Offline = 0;
       }
-      /*else if(Num == 1) 
-      {
-        Status.Online =1;
-        KeyPad();
-        Status.Online =0;
-      }
+      /*
       else if(Num == 4)	Volume();
       else if(Num == 5)	WiFi_Setting();
  
@@ -288,7 +300,110 @@ void MATLAB   (void)
 ***************************************************************************/
 void Online(void)
 {
+  uint8_t i=12;
 
+  Status.whiles = 1;
+
+  lcd_puts_XY(0,0,"Please Wait");
+  lcd_puts_XY(0,2,"Connecting to :");
+  lcd_puts_XY(0,3,WiFi.SSID());
+  
+  delay(500);
+
+  while (WiFi.status() != WL_CONNECTED && Status.whiles) 
+  {
+    lcd_puts_XY(i,0,'.');
+    delay(500);
+    i++;
+    if(i>14) 
+    {
+      i = 12;
+      lcd_puts_XY(12,0,"    ");
+      delay(500);
+    }
+    key_analyze();
+  }
+  if(!Status.whiles)  return;
+  Status.whiles = 1;
+
+  HTTPClient http;    //Declare object of class HTTPClient
+  DynamicJsonDocument doc(200);
+
+  String payload;
+  boolean chek = 1;
+  int httpCode;
+
+  while(Status.whiles)
+  {
+    http.begin("http://ap.damoon.pro/api/ap/status");            //Specify request destination
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");    //Specify content-type header
+  
+    httpCode = http.POST("status=0");   //Send the request
+    payload = http.getString();    //Get the response payload
+    delay(1000);
+    Serial.println(httpCode);   //Print HTTP return code
+    Serial.println(payload);    //Print request response payload
+    
+    http.end();  //Close connection
+    
+    if(payload.indexOf("kp") > 0)
+    {
+      DeserializationError error = deserializeJson(doc, payload);
+      if (error) 
+      {
+        Serial.print(F("deserializeJson() failed: "));
+        Serial.println(error.f_str());
+      }   
+      else
+      {
+        PID.Kp = doc["kp"];
+        PID.Ki = doc["ki"];
+        PID.Kd = doc["kd"];
+        PID.SetPoint = doc["sp"];
+        PID.time = doc["time"];
+        char *token_char = doc["token"];
+
+        token = token_char;
+        token += '/'; 
+
+        char *code_char = doc["code"]; 
+        code = code_char;
+
+        angleAdderss = "http://ap.damoon.pro/api/ap/angle/";
+        angleAdderss += token;
+        angleAdderss += code; 
+
+        PID_Controll();
+      }  
+    }
+
+    key_analyze();
+  }
+
+}
+/***************************************************************************
+****************************************************************************
+****************************************************************************
+***************************************************************************/
+void data_send_online(uint16 *time, int16_t *angle, uint16 i)
+{
+  HTTPClient http;
+  String payload;
+  int httpCode;
+
+  String data = "angle=";
+  for(uint16 x=0 ; x<i ; x++)
+  {
+    data += angle[x];
+    data += '@';
+    data += time[x];
+  }
+  http.begin(angleAdderss); 
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  httpCode = http.POST(data);
+  payload = http.getString();
+  Serial.println(httpCode);
+  Serial.println(payload);
 }
 /***************************************************************************
 ****************************************************************************
@@ -397,6 +512,13 @@ void PID_Controll(void)
 	uint32_t timePrev, TickStart = millis();
 	uint8_t throttle =  Max_Throttle - Min_Throttle;
 
+  //online variable
+  uint16  i = 0;
+  uint16  time_online [1000];
+  int16_t angle_online[1000];
+  unsigned long time_tick_online = millis();
+  unsigned long time_to_send = millis();
+  
   lcd.clear();
 
 	while(Status.motor & Status.whiles)
@@ -428,7 +550,31 @@ void PID_Controll(void)
     esc.write(Value);
 
     Previous_error = Error;
+
+
+    key_analyze();
+
     
+    if(Status.Online)
+    {
+      angle_online[i] = (int16_t) Angle;
+      time_online[i]  = millis() - time_tick_online;
+
+      if(time_online[i] >= PID.time*1000)
+			{
+        Status.motor = 0;
+        Status.whiles = 0;
+        PID.time = 0;
+      }
+      i++;
+      if(millis() - time_to_send >= 1000 || Status.motor == 0)
+			{
+        data_send_online(time_online, angle_online, i);
+        time_to_send = millis();
+        i = 0;
+      }
+    }
+
     if(Status.Offline)
     {
       lcd_puts_XY(0,0,"SP=");
@@ -439,7 +585,6 @@ void PID_Controll(void)
       lcd.print("   ");
     }
     delay(1);
-    key_analyze();
 	}
   Status.whiles = 1;
   Status.motor = 0;
