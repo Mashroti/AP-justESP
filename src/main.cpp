@@ -350,10 +350,16 @@ void Online(void)
     Serial.println(payload);    //Print request response payload
     
     http.end();  //Close connection
-    
-    lcd_puts_XY(0,0,payload);
-    lcd.print("  ");
 
+    if(httpCode == 200)
+    {
+      lcd_puts_XY(0,0,"Waiting For data");
+    }
+    else
+    {
+      lcd_puts_XY(0,0,"Connection Error");
+    }
+    
     if(payload.indexOf("kp") > 0)
     {
       DeserializationError error = deserializeJson(doc, payload);
