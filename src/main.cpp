@@ -341,7 +341,6 @@ void Online(void)
   Status.whiles = 1;
 
   HTTPClient http;    //Declare object of class HTTPClient
-  DynamicJsonDocument doc(200);
 
   String payload;
   int httpCode;
@@ -370,10 +369,12 @@ void Online(void)
     
     if(payload.indexOf("kp") > 0)
     {
+      DynamicJsonDocument doc(500);
       DeserializationError error = deserializeJson(doc, payload);
       if (error) 
       {
-        Serial.print(F("deserializeJson failed"));
+        Serial.println(F("deserializeJson failed"));
+        //Serial.println(error.f_str());
       }   
       else
       {
@@ -394,6 +395,7 @@ void Online(void)
         angleAdderss += token;
         angleAdderss += code; 
 
+        Status.motor = 1;
         PID_Controll();
       }  
     }
@@ -418,12 +420,13 @@ void data_send_online(uint16 *time, int16_t *angle, uint16 i)
     data += angle[x];
     data += '@';
     data += time[x];
+    data += ',';
   }
   http.begin(angleAdderss); 
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
   httpCode = http.POST(data);
   payload = http.getString();
-  Serial.println(httpCode);
+  Serial.println(data);
   Serial.println(payload);
 }
 /***************************************************************************
@@ -625,6 +628,9 @@ void PID_Controll(void)
   unsigned long time_tick_online = millis();
   unsigned long time_to_send = time_tick_online;
   
+  char RXbuffer[40];
+  uint8_t count=0;
+
   lcd.clear();
 
 	while(Status.motor & Status.whiles)
@@ -690,7 +696,35 @@ void PID_Controll(void)
       lcd.print(Angle,2);
       lcd.print("   ");
     }
-    delay(1);
+
+    else if(Status.exe)
+    {
+      char buffer[15];
+
+      uint16_t time_send = millis() - time_to_send;
+      sprintf((char*)buffer,"data,%d,%d\r\n",(int16_t)Angle,time_send);
+      Serial.print(buffer);
+
+      if(Serial.available())
+      {
+        while (Serial.available() > 0)
+        {
+          char c = Serial.read();  //gets one byte from serial buffer
+          RXbuffer[count++] = c; //makes the string readString
+          RXbuffer[count] = 0;
+
+          if(c == '\n')
+          {
+            Process_UART_Data(RXbuffer);
+            count = 0;
+          }  
+          delay(1);
+        }
+      }
+
+    }
+
+    delay(5);
 	}
   Status.whiles = 1;
   Status.motor = 0;
