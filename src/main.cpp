@@ -92,6 +92,8 @@ void data_send_online(uint16 *time, int16_t *angle, uint16 i);
 void Offline(void);
 void show_param(void);
 void PID_Controll(void);
+void WinApp(void);
+void Process_UART_Data(char* Data);
 void PID_setting(void);
 void Get_Number (char *NUMBER);
 
@@ -175,6 +177,12 @@ void loop()
         Status.Offline = 1;
         Offline();
         Status.Offline = 0;
+      }
+      else if(Num == 4)
+      {
+        Status.exe = 1;
+        WinApp();
+        Status.exe = 0;        
       }
       /*
       else if(Num == 4)	Volume();
@@ -452,6 +460,91 @@ void show_param(void)
 ****************************************************************************
 ****************************************************************************
 ***************************************************************************/
+void WinApp(void)
+{
+  char buffer[500];
+  bool data = false;
+  uint8_t count=0; 
+
+  Status.whiles =1;
+  Status.motor = 0;
+
+  while (Status.whiles)
+  {
+    key_analyze();
+    if(Serial.available())
+    {
+      char c = Serial.read();  //gets one byte from serial buffer
+      buffer[count++] = c; //makes the string readString
+      buffer[count] = 0;
+
+      if(c == '\n')
+      {
+        data = true;
+        count = 0;
+      }
+      //delay(1);  //slow looping to allow buffer to fill with next character
+    }
+    delay(1);
+    if(data)
+    {
+      data = false;
+      Process_UART_Data(buffer);
+
+      if(Status.motor)  PID_Controll();
+    }
+
+  }
+  
+}
+/***************************************************************************
+****************************************************************************
+****************************************************************************
+***************************************************************************/
+void Process_UART_Data(char* Data)
+{
+	if(strstr(Data,"Angle?")!=0)
+	{
+		int16_t Angle = ((int16_t)Encoder_quad)/4;
+    char buffer[15];
+    sprintf(buffer,"Angle:%04d\r\n",Angle);
+    Serial.print(buffer);
+	}
+
+	else if(strstr(Data,"zenc")!=0) Encoder_quad = 0;
+
+	else if(strstr(Data,"PWM")!=0)
+	{
+		uint16_t track = atoi(strstr(Data,"PWM:")+4);
+    uint8_t pwm = map(track,3272,6546,40,156);
+    esc.write(pwm);
+	}
+	else
+	{
+    float p=0,i=0,d=0;
+	  int sp=0,time=0;
+
+		int x = sscanf(Data,"kp%fki%fkd%fsp%dtime%d",&p,&i,&d,&sp,&time);
+		if(x == 5)
+		{
+			PID.Kp = p;
+			PID.Ki = i;
+			PID.Kd = d;
+			PID.SetPoint = sp;
+
+			if(time == 555) Status.motor = 1;
+			if(time == 444) 
+      {
+        Status.motor = 0;
+        esc.write(0);
+      }
+		}
+	}
+}
+/***************************************************************************
+****************************************************************************
+****************************************************************************
+***************************************************************************/
 char prev_key;
 void key_analyze(void)
 {
@@ -527,10 +620,10 @@ void PID_Controll(void)
 
   //online variable
   uint16  i = 0;
-  uint16  time_online [1000];
-  int16_t angle_online[1000];
+  uint16  time_online [500];
+  int16_t angle_online[500];
   unsigned long time_tick_online = millis();
-  unsigned long time_to_send = millis();
+  unsigned long time_to_send = time_tick_online;
   
   lcd.clear();
 
@@ -588,7 +681,7 @@ void PID_Controll(void)
       }
     }
 
-    if(Status.Offline)
+    else if(Status.Offline)
     {
       lcd_puts_XY(0,0,"SP=");
       lcd.print(PID.SetPoint); 
