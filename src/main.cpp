@@ -88,7 +88,7 @@ void MATLAB   (void);
 void startup (void);
 void key_analyze(void);
 void Online(void);
-void data_send_online(uint16 *time, int16_t *angle, uint16 i);
+void data_send_online(String data);
 void Offline(void);
 void show_param(void);
 void PID_Controll(void);
@@ -408,24 +408,17 @@ void Online(void)
 ****************************************************************************
 ****************************************************************************
 ***************************************************************************/
-void data_send_online(uint16 *time, int16_t *angle, uint16 i)
+void data_send_online(String data)
 {
   HTTPClient http;
   String payload;
   int httpCode;
 
-  String data = "angle=";
-  for(uint16 x=0 ; x<i ; x++)
-  {
-    data += angle[x];
-    data += '@';
-    data += time[x];
-    data += ',';
-  }
   http.begin(angleAdderss); 
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
   httpCode = http.POST(data);
   payload = http.getString();
+  http.end();
   Serial.println(data);
   Serial.println(payload);
 }
@@ -622,14 +615,13 @@ void PID_Controll(void)
 	uint8_t throttle =  Max_Throttle - Min_Throttle;
 
   //online variable
-  uint16  i = 0;
-  uint16  time_online [500];
-  int16_t angle_online[500];
+  String data_online = "angle=";
+  uint16 time_online;
   unsigned long time_tick_online = millis();
   unsigned long time_to_send = time_tick_online;
   
   char RXbuffer[40];
-  uint8_t count=0;
+  uint8_t count=0;     
 
   lcd.clear();
 
@@ -669,21 +661,24 @@ void PID_Controll(void)
     
     if(Status.Online)
     {
-      angle_online[i] = (int16_t) Angle;
-      time_online[i]  = millis() - time_tick_online;
+      time_online = millis() - time_tick_online;
 
-      if(time_online[i] >= PID.time*1000)
+      data_online += (int16_t)Angle;
+      data_online +='@';
+      data_online += time_online;
+      data_online += ',';
+
+      if(time_online >= PID.time*1000)
 			{
         Status.motor = 0;
         Status.whiles = 0;
         PID.time = 0;
       }
-      i++;
       if(millis() - time_to_send >= 1000 || Status.motor == 0)
 			{
-        data_send_online(time_online, angle_online, i);
+        data_send_online(data_online);
         time_to_send = millis();
-        i = 0;
+        data_online = "angle=";
       }
     }
 
@@ -730,6 +725,7 @@ void PID_Controll(void)
   Status.motor = 0;
   esc.write(0);
   if(Status.Offline) show_param();
+
 }
 /***************************************************************************
 ****************************************************************************
